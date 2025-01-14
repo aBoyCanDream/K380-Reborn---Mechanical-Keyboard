@@ -35,9 +35,20 @@ bool enc1DecrKeyDown = false;
 uint32_t enc1IncrDecrKeyDownMillis = 0;
 uint32_t enc1IncrDecrKeyPressIntervalMillis = 0;
 
+uint16_t encLongPressThr = 300; // in millisecs
+bool enc1BtnLastState = 1;
+uint32_t enc1BtnKeyDownMillis = 0;
+bool enc1BtnPressed = false;
+bool enc1BtnKeyDown = false;
+bool enc2BtnLastState = 1;
+uint32_t enc2BtnKeyDownMillis = 0;
+bool enc2BtnPressed = false;
+bool enc2BtnKeyDown = false;
+
 int16_t enc2IncrDecr = 0;
 bool enc2ALastState = 1;
-uint32_t btnDebounceMillis = 0;
+uint32_t enc1BtnDebounceMillis = 0;
+uint32_t enc2BtnDebounceMillis = 0;
 uint32_t triggerMillis = 0;
 int btnDebounceDelay = 50;
 int lastButtonState = 1;
@@ -75,7 +86,13 @@ int delayval = 500; // delay for half a second
 void goToSleep() {
       // Go to sleep
       // Serial.flush(); // First flush Serial if using Serial
+
+      // Turn off ADC before sleeping. It will be burning over 100uA in sleep mode otherwise.
       ADCPowerOptions(ADC_DISABLE);  // Turn off ADC
+      //Then:
+      //ADCPowerOptions(ADC_ENABLE);     // to turn on ADC after wake if needed
+
+      //Dev
       digitalWriteFast(OPTOSW1, LOW); 
       digitalWriteFast(OPTOSW2, LOW); 
 
@@ -89,12 +106,6 @@ void goToSleep() {
       PORTA.PIN4CTRL  = 0b00001011; //PULLUPEN = 1, ISC = 3 interrupt on falling
       PORTB.PIN1CTRL  = 0b00001010; //PULLUPEN = 1, ISC = 2 interrupt on rising
       PORTB.PIN6CTRL  = 0b00001011; //PULLUPEN = 1, ISC = 2 interrupt on falling
-
-      // Reg code
-      // PORTB.PIN6CTRL = 0x00; //ENC2A - PULLUPEN = 1, ISC = 2 interrupt on falling
-      // PORTA.PIN6CTRL = 0x00; // ENC1A
-      // PORTB.PIN2CTRL = 0x08; // ENC1BTN
-      // PORTC.PIN2CTRL = 0x08; // ENC2BTN
 
       // Then sleep!
       sleep_cpu(); 
@@ -151,13 +162,10 @@ void setup() {
       // Serial.println("analogRead(ADC_VDDDIV10):");
       // Serial.println(analogRead(ADC_VDDDIV10));
 
-      // More to test
-      // This apparently should be run before sleeping because the ADC will be burning over 100uA in sleep mode. You can use:
-      //ADCPowerOptions(ADC_DISABLE);                           //  to turn off the ADC.
-      //Then:
-      //ADCPowerOptions(ADC_ENABLE);     // to turn on ADC after wake
 
-      // But since we're not using the ADC at all, we should probably just turn it off in setup
+
+      // We're not using ADC so turn off to save power
+      ADCPowerOptions(ADC_DISABLE);
 
       // Sleep
       // To use sleep, we have to first select our mode and then enable with two calls below:
@@ -166,21 +174,9 @@ void setup() {
 
       // We can keep this in setup(). Then to start sleep, we call somewhere in loop():
       // sleep_cpu(); 
-      // If we're using Serial.print, call Serial.flush() first before sleep
-
 }
 
-// the loop function runs over and over again forever
 void loop() {
-      // Serial.println("Hello 12345");
-      // delay(2000);
-
-                  //       digitalWrite(PIN_PB3, HIGH); 
-                  // delay(1000);
-                  // digitalWrite(PIN_PB3, LOW); 
-                  // delay(1000);
-
-
 
         //BlinkWithoutDelay, just so you can confirm that the sketch continues to run.
             unsigned long currentMillis = millis();        
@@ -199,8 +195,12 @@ void loop() {
 
       
       bool enc1BtnState = digitalReadFast(ENC1BTN);
-      if (enc1BtnState == LOW && millis() - btnDebounceMillis > btnDebounceDelay) {
-            btnDebounceMillis = millis();
+      if (enc1BtnState == LOW && millis() - enc1BtnDebounceMillis > btnDebounceDelay && enc1BtnPressed == false) {
+            // No need to handle super fast clicks. Don't think User can do 6ms clicks. If you think otherwise, you can change code to behave like encoder. Also, our software debounce is preventing crazy fast clicks
+            enc1BtnDebounceMillis = millis();
+
+            enc1BtnKeyDownMillis = millis();
+            enc1BtnPressed = true;
             // for (int i = 0; i < enc1IncrDecr; i++) {
             //       digitalWriteFast(OPTOSW1, HIGH); 
             //       delay(1000);
@@ -210,6 +210,37 @@ void loop() {
             // enc1IncrDecr = 0;
             
       } 
+
+      // Handle short press and long press of middle button
+      if (enc1BtnPressed == true && enc1BtnState == HIGH) {
+            enc1BtnPressed = false;
+            if (millis() - enc1BtnKeyDownMillis > encLongPressThr) { // Do long press
+
+            } else {    // short press
+                  enc1BtnKeyDown = true;
+                  enc1BtnKeyDownMillis = millis(); // We'll re-use this millis
+                  digitalWriteFast(OPTOSW1, HIGH); 
+            }
+      }
+
+      bool enc2BtnState = digitalReadFast(ENC2BTN);
+      if (enc2BtnState == LOW && millis() - enc2BtnDebounceMillis > btnDebounceDelay && enc1BtnPressed == false) {
+            enc2BtnDebounceMillis = millis();
+
+            enc2BtnKeyDownMillis = millis();
+            enc2BtnPressed = true;
+      } 
+
+      if (enc2BtnPressed == true && enc2BtnState == HIGH) {
+            enc2BtnPressed = false;
+            if (millis() - enc2BtnKeyDownMillis > encLongPressThr) { // Do long press
+
+            } else {    // short press
+                  enc2BtnKeyDown = true;
+                  enc2BtnKeyDownMillis = millis(); // We'll re-use this millis
+                  //digitalWriteFast(?, HIGH); 
+            }
+      }
 
       //       if (digitalReadFast(PIN_PB1) == LOW && millis() - btnDebounceMillis > btnDebounceDelay) {
       //       btnDebounceMillis = millis();
@@ -284,6 +315,16 @@ void loop() {
             enc1IncrDecr++;
       }
 
+      if (enc1BtnKeyDown == true && millis() - enc1BtnKeyDownMillis > KEY_PRESS_LENGTH) {
+            enc1BtnKeyDown = false;     
+            digitalWriteFast(OPTOSW1, LOW); 
+      }
+
+      if (enc2BtnKeyDown == true && millis() - enc2BtnKeyDownMillis > KEY_PRESS_LENGTH) {
+            enc2BtnKeyDown = false;     
+            //digitalWriteFast(?, LOW); 
+      }
+
 
       // // For a set of NeoPixels the first NeoPixel is 0, second is 1, all the way up to the count of pixels minus one.
 
@@ -317,9 +358,6 @@ void loop() {
 // 	•	6th bit:  2^6 = 64  → 0x40    -> (Px6)
 // 	•	7th bit:  2^7 = 128  → 0x80   -> (Px7)
 ISR(PORTA_PORT_vect) {
-
-      byte flags = PORTA.INTFLAGS;
-
       // First disable all interrupts across all ports. For more info: https://github.com/SpenceKonde/megaTinyCore/blob/master/megaavr/extras/Ref_PinInterrupts.md
 
       // Ways to disable
@@ -331,13 +369,6 @@ ISR(PORTA_PORT_vect) {
 
       // If you know what the value of this register should be with the interrupt off (usually 0x00 if pullup is not on, 0x08 if it is)
       // you can write that directly to save a few bytes of flash, at the cost of making the code harder to read.
-      // PORTA.PIN6CTRL = 0x00; // If this pin does not have the pullup, and we just want to turn off the interrupt.
-      // PORTB.PIN2CTRL = 0x08; // If this pin has the pullup turned on, and we just want to turn off the interrupt.
-      // PORTB.PIN6CTRL = 0x00;
-      // PORTC.PIN2CTRL = 0x08;
-
-
-      //PORTC.PIN2CTRL = 0x08;
 
       // Dev
       //PORTA.PIN4CTRL = 0x08;
@@ -345,13 +376,13 @@ ISR(PORTA_PORT_vect) {
       PORTB.PIN6CTRL = 0x08;
 
       // Reg code
-      // PORTB.PIN6CTRL = 0x00; //ENC2A - PULLUPEN = 1, ISC = 2 interrupt on falling
+      // PORTB.PIN6CTRL = 0x00; //ENC2A // If this pin does not have the pullup, and we just want to turn off the interrupt.
       // PORTA.PIN6CTRL = 0x00; // ENC1A
-      // PORTB.PIN2CTRL = 0x08; // ENC1BTN
+      // PORTB.PIN2CTRL = 0x08; // ENC1BTN // If this pin has the pullup turned on, and we just want to turn off the interrupt.
       // PORTC.PIN2CTRL = 0x08; // ENC2BTN
 
       interrupt1 = 1;
-      
+      byte flags = PORTA.INTFLAGS;
       // This line in the tutorial doesn't work to clear all flags:
       // PORTA.INTFLAGS = 1; 
 
@@ -360,13 +391,7 @@ ISR(PORTA_PORT_vect) {
 }
 
 ISR(PORTB_PORT_vect) {
-      byte flags = PORTB.INTFLAGS;
-
       // First disable all interrupts across all ports
-      // PORTA.PIN6CTRL = 0x00; // If this pin does not have the pullup, and we just want to turn off the interrupt.
-      // PORTB.PIN2CTRL = 0x08; // If this pin has the pullup turned on, and we just want to turn off the interrupt.
-      // PORTB.PIN6CTRL = 0x00;
-      // PORTC.PIN2CTRL = 0x08;
 
       // Dev
       //PORTA.PIN4CTRL = 0x08;
@@ -374,11 +399,12 @@ ISR(PORTB_PORT_vect) {
       PORTB.PIN6CTRL = 0x08;
 
       // Reg code
-      // PORTB.PIN6CTRL = 0x00; //ENC2A - PULLUPEN = 1, ISC = 2 interrupt on falling
+      // PORTB.PIN6CTRL = 0x00; //ENC2A // If this pin does not have the pullup, and we just want to turn off the interrupt.
       // PORTA.PIN6CTRL = 0x00; // ENC1A
-      // PORTB.PIN2CTRL = 0x08; // ENC1BTN
+      // PORTB.PIN2CTRL = 0x08; // ENC1BTN // If this pin has the pullup turned on, and we just want to turn off the interrupt.
       // PORTC.PIN2CTRL = 0x08; // ENC2BTN
 
+      byte flags = PORTB.INTFLAGS;
       // You can set instructions for specific interrupts. But we will just wake up and let main() do its thing
       if (flags & 0x02) {     // dev
             interrupt2 = 1;
@@ -395,11 +421,7 @@ ISR(PORTB_PORT_vect) {
       PORTB.INTFLAGS = flags; //clear flags
 }
 
-ISR(PORTC_PORT_vect) {
-      byte flags = PORTC.INTFLAGS;
-      // Final code:
-
-      // First disable all interrupts across all ports
+ISR(PORTC_PORT_vect) {// First disable all interrupts across all ports
 
       // Dev
       //PORTA.PIN4CTRL = 0x08;
@@ -407,11 +429,12 @@ ISR(PORTC_PORT_vect) {
       PORTB.PIN6CTRL = 0x08;     
 
       // Reg code
-      // PORTB.PIN6CTRL = 0x00; //ENC2A - PULLUPEN = 1, ISC = 2 interrupt on falling
+      // PORTB.PIN6CTRL = 0x00; //ENC2A // If this pin does not have the pullup, and we just want to turn off the interrupt.
       // PORTA.PIN6CTRL = 0x00; // ENC1A
-      // PORTB.PIN2CTRL = 0x08; // ENC1BTN
+      // PORTB.PIN2CTRL = 0x08; // ENC1BTN // If this pin has the pullup turned on, and we just want to turn off the interrupt.
       // PORTC.PIN2CTRL = 0x08; // ENC2BTN
 
+      byte flags = PORTC.INTFLAGS;
       // Clear flags
       PORTC.INTFLAGS = flags; //clear flags
 }
