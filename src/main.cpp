@@ -35,7 +35,7 @@ bool enc1DecrKeyDown = false;
 uint32_t enc1IncrDecrKeyDownMillis = 0;
 uint32_t enc1IncrDecrKeyPressIntervalMillis = 0;
 
-uint16_t encLongPressThr = 300; // in millisecs
+uint16_t encLongPressThr = 1000; // in millisecs
 bool enc1BtnLastState = 1;
 uint32_t enc1BtnKeyDownMillis = 0;
 bool enc1BtnPressed = false;
