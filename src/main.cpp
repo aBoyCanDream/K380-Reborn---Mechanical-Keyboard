@@ -166,6 +166,10 @@ void setup() {
 
       // We can keep this in setup(). Then to start sleep, we call somewhere in loop():
       // sleep_cpu(); 
+
+      // Prevent encoder activation when system is turned on and encoder is starting in LOW position
+      enc1ALastState = digitalReadFast(ENC1A);
+      enc2ALastState = digitalReadFast(ENC2A);
 }
 
 void loop() {
