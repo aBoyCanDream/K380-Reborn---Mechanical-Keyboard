@@ -328,6 +328,8 @@ void breathe() {
       }
 }
 
+
+
 uint8_t gaussianWave(uint16_t frame, double numFrames) {
       const double gamma = 0.2; // affects the width of peak (more or less darkness)
       const double beta = 0.5; // shifts the gaussian to be symmetric
