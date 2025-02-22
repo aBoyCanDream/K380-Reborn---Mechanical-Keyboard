@@ -208,7 +208,7 @@ void loop() {
       static bool enc1BtnTriggered = false;
       if (enc1BtnPressed == true && enc1BtnTriggered == false && millis() - enc1BtnKeyDownMillis > encLongPressThr) { // Do long press
             // singleColor();
-            ledOnOff();
+            ledsOnOff();
             enc1BtnTriggered = true;
       }
 

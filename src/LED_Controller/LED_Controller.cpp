@@ -1,5 +1,6 @@
 #include "./LED_Controller/LED_Controller.h"
 #include <tinyNeoPixel_Static.h>
+#include <math.h>
 
 // How many NeoPixels are attached to the Arduino?
 #define NUMPIXELS      89
@@ -8,9 +9,12 @@ bool preventSleep = false;   // Toggle true to prevent sleep - eg during LED rou
 bool ledActive = false;
 bool ledModeSelectActive = false;
 uint8_t ledMode = 0;
-bool ledOn = false;
+bool ledsOn = false;
 
-uint8_t singleColorIntensity = 5;
+uint8_t ledIntensity = 5;
+
+uint32_t animationMillis = 0;
+
 bool ledFlash = true;
 bool pixelTest = false;
 
@@ -39,6 +43,13 @@ uint32_t *millisCounters[6] = {
 uint16_t fadeIncr = 50;
 bool zoneActive = false;
 
+// Create relative equal grid of pixels  (in order from right to left, bottom of keyboard to top -- encoder pixels run clockwise. Zero is absolute top right of keyboard). -1 is spaces for larger keys (missing lights)
+int8_t row6[] = { 88, 87, 86, 85, 84, 83, 82, 81, 80, 79, 78, 77, 76, 75, 74,  3,  0};
+int8_t row5[] = { 73, 72, 71, 70, 69, 68, 67, 66, 65, 64, 63, 62, 61, -1, 60,  2,  1};
+int8_t row4[] = { 59, 58, 57, 56, 55, 54, 53, 52, 51, 50, 49, 48, 47, 46, -1,  7,  4};
+int8_t row3[] = { 45, -1, 44, 43, 42, 41, 40, 39, 38, 37, 36, 35, 34, 33, -1,  6,  5};
+int8_t row2[] = { -1, 32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, -1, 21, -1, 20, 19};
+int8_t row1[] = { 18, 17, 16, 15, -1, -1, -1, 14, -1, -1, -1, 13, 12, 11, 10,  9,  8};
 
 // Since this is for the static version of the library, we need to supply the pixel array
 // This saves space by eliminating use of malloc() and free(), and makes the RAM used for
@@ -108,14 +119,16 @@ void ledLoop() {
             }
       }
 
-      if (ledOn == true) {
+      if (ledsOn == true) {
             if (ledMode == 1) {
                   rainbow();
             } else if (ledMode == 2) {
                   rainbowCycle();
             } else if (ledMode == 3) {
                   theaterChaseRainbow();
-            }        
+            } else if (ledMode == 4) {
+                  breathe();
+            }         
       }
 
       static uint16_t ledCommandCount = 0;
@@ -158,12 +171,13 @@ void ledLoop() {
       }
 }
 
-void ledOnOff() {
+void ledsOnOff() {
 
 
-      ledOn = !ledOn;
-      if (ledOn) {
+      ledsOn = !ledsOn;
+      if (ledsOn) {
             digitalWriteFast(LED_EN, HIGH);
+
             enc1AltToggle(0); // Send a 0 to turn on current settings on current mode
       } else {
             leds.clear();
@@ -177,13 +191,17 @@ void ledModeSelect() {
       ledModeSelectActive = !ledModeSelectActive;
 
       if (ledModeSelectActive == true) {
-            ledOn = true;
+            ledsOn = true;
             ledActive = true;
             digitalWriteFast(LED_EN, HIGH);
+            singleColorWrite(0, 0, 0, 0, 1, 2, 3, -1);  
             singleColorWrite(5, 0, 0, 4, 5, 6, 7, -1);  
       } else {
-            ledActive = false;
-            singleColorWrite(0, 0, 0, 4, 5, 6, 7, -1);  
+            singleColorWrite(0, 0, 0, 4, 5, 6, 7, -1);      
+            // Set encoder leds to single colors when in singleColor mode        
+            if (ledMode == 0) {
+                  singleColor();
+            }
       }
 }
 
@@ -191,6 +209,7 @@ void enc1AltToggle(int8_t direction) {
       switch(ledMode) {
             case 0: {
                   scrollSingleColor(direction);
+                  singleColor();
                   break;
             }
             case 1: {
@@ -205,10 +224,15 @@ void enc1AltToggle(int8_t direction) {
                   theaterChaseRainbow();
                   break;
             }
+            case 4: {
+                  scrollSingleColor(direction);
+                  breathe();
+                  break;
+            }
       }
 }
 
-const uint8_t numLedModes = 4;
+const uint8_t numLedModes = 5;
 void enc2AltToggle(int8_t direction) {
       int8_t l_ledMode;
       l_ledMode = ledMode += direction;
@@ -217,6 +241,7 @@ void enc2AltToggle(int8_t direction) {
       switch(ledMode) {
             case 0: {
                   scrollSingleColor(0);
+                  singleColor();
                   break;
             }
             case 1: {
@@ -231,56 +256,100 @@ void enc2AltToggle(int8_t direction) {
                   theaterChaseRainbow();
                   break;
             }
+            case 4: {
+                  breathe();
+                  break;
+            }
       }
 }
 
 static int8_t currentActiveSingleColor = 0;
+// static uint32_t currentActiveSingleColorVal = 0;
 void scrollSingleColor(int8_t direction) {
       currentActiveSingleColor = currentActiveSingleColor += direction;
       if (currentActiveSingleColor < 0) currentActiveSingleColor = 2;
       if (currentActiveSingleColor > 2) currentActiveSingleColor = 0;
-
-      singleColor(currentActiveSingleColor);
 }
 
-void singleColor(uint8_t color) {
-      if (color != 3) {
-            digitalWriteFast(LED_EN, HIGH);
-            ledActive = true;
+void singleColor() {
+      digitalWriteFast(LED_EN, HIGH);
+      ledActive = true;
+      preventSleep = false;
 
-            uint8_t rValue = 0;
-            uint8_t gValue = 0;
-            uint8_t bValue = 0;
-            switch(color) {
-                  case 0: {
-                        rValue = singleColorIntensity;
-                        break;
-                  }
-                  case 1: {
-                        gValue = singleColorIntensity;
-                        break;
-                  }
-                  case 2: {
-                        bValue = singleColorIntensity;
-                        break;
-                  }
-            }
-            for (int i = 8; i < NUMPIXELS; i++) {
-                  leds.setPixelColor(i, leds.Color(rValue, gValue, bValue));
-            }
+      uint8_t startPixel = ledModeSelectActive == true ? 8 : 0;
+      uint32_t colorVal = singleColorValue(ledIntensity);
+      for (int i = startPixel; i < NUMPIXELS; i++) {
+            leds.setPixelColor(i, colorVal);
+      }
 
+      leds.show();
+}
+
+uint32_t singleColorValue(uint8_t intensity) {
+      uint8_t rValue = 0;
+      uint8_t gValue = 0;
+      uint8_t bValue = 0;
+      switch(currentActiveSingleColor) {
+            case 0: {
+                  rValue = intensity;
+                  break;
+            }
+            case 1: {
+                  gValue = intensity;
+                  break;
+            }
+            case 2: {
+                  bValue = intensity;
+                  break;
+            }
+      }
+      return leds.Color(rValue, gValue, bValue);
+}
+
+
+static uint16_t breathAnimationCount = 0;
+void breathe() {
+      const double smoothness_pts = 500; // Needs to be float to get correct math below. larger=slower change in brightness  
+      const uint16_t breathDelay = 5;
+
+      preventSleep = true;
+      ledActive = false;
+      if (millis() - animationMillis > breathDelay) {
+            animationMillis = millis();
+
+            uint8_t startPixel = ledModeSelectActive == true ? 8 : 0;
+            uint8_t intensityValue = gaussianWave(breathAnimationCount, smoothness_pts);
+            uint32_t colorValue = singleColorValue(intensityValue);
+            for (int i = startPixel; i < NUMPIXELS; i++) {
+                  leds.setPixelColor(i, colorValue);
+            }
             leds.show();
-      } 
+            if (++breathAnimationCount >= smoothness_pts) breathAnimationCount = 0;
+      }
 }
+
+uint8_t gaussianWave(uint16_t frame, double numFrames) {
+      const double gamma = 0.2; // affects the width of peak (more or less darkness)
+      const double beta = 0.5; // shifts the gaussian to be symmetric
+
+      double wave_pt = 255.0*(exp(-(pow(((frame/numFrames)-beta)/gamma,2.0))/2.0));
+      return static_cast<uint8_t>(wave_pt * 50 / 255);      
+}
+
 
 static uint8_t rainbowIterationCount = 0;
 static uint16_t rainbowDelay = 100;
-static uint32_t rainbowMillis = 0;
+
 void rainbow() {
       preventSleep = true;
-      if (millis() - rainbowMillis > rainbowDelay) {
-            rainbowMillis = millis();
-            for (int i = 0; i < NUMPIXELS; i++) {
+      ledActive = false;
+      if (millis() - animationMillis > rainbowDelay) {
+            animationMillis = millis();
+
+            // Don't include encoder leds in ledModeSelect
+            uint8_t startPixel = ledModeSelectActive == true ? 8 : 0;
+
+            for (int i = startPixel; i < NUMPIXELS; i++) {
                   leds.setPixelColor(i, Wheel((i + rainbowIterationCount) & 255));
             }
             leds.show();
@@ -290,9 +359,11 @@ void rainbow() {
 
 void rainbowCycle() {
       preventSleep = true;
-      if (millis() - rainbowMillis > rainbowDelay) {
-            rainbowMillis = millis();
-            for (int i = 0; i < NUMPIXELS; i++) {
+      ledActive = false;
+      if (millis() - animationMillis > rainbowDelay) {
+            animationMillis = millis();
+            uint8_t startPixel = ledModeSelectActive == true ? 8 : 0;
+            for (int i = startPixel; i < NUMPIXELS; i++) {
                   leds.setPixelColor(i, Wheel(((i * 256 / NUMPIXELS) + rainbowIterationCount) & 255));
             }
             leds.show();
@@ -306,15 +377,17 @@ static uint8_t chaseCount = 0;
 const uint8_t chasePixelSeparation = 5;
 void theaterChaseRainbow() {
       preventSleep = true;
-      if (millis() - rainbowMillis > rainbowDelay) {
-            rainbowMillis = millis();
+      ledActive = false;
+      if (millis() - animationMillis > rainbowDelay) {
+            animationMillis = millis();
+            uint8_t startPixel = ledModeSelectActive == true ? 8 : 0;
                   if (chaseToggle) {
-                        for (uint16_t i = 0; i < NUMPIXELS; i = i + chasePixelSeparation) {
+                        for (uint16_t i = startPixel; i < NUMPIXELS; i = i + chasePixelSeparation) {
                               leds.setPixelColor(i + chaseCount, Wheel((i + rainbowIterationCount) % 255)); // turn every third pixel on
                         }
                         leds.show();                        
                   } else {
-                        for (uint16_t i = 0; i < NUMPIXELS; i = i + chasePixelSeparation) {
+                        for (uint16_t i = startPixel; i < NUMPIXELS; i = i + chasePixelSeparation) {
                               leds.setPixelColor(i + chaseCount, 0);      // turn every third pixel off
                         }                      
                   }
@@ -327,33 +400,20 @@ void theaterChaseRainbow() {
 
             chaseToggle = !chaseToggle;
       }
-      // for (int j = 0; j < 256; j++) {   // cycle all 256 colors in the wheel
-      //       for (int q = 0; q < 3; q++) {
-      //             for (uint16_t i = 0; i < strip.numPixels(); i = i + 3) {
-      //                   strip.setPixelColor(i + q, Wheel((i + j) % 255)); // turn every third pixel on
-      //             }
-      //             strip.show();
-            
-      //             delay(wait);
-            
-      //             for (uint16_t i = 0; i < strip.numPixels(); i = i + 3) {
-      //                   strip.setPixelColor(i + q, 0);      // turn every third pixel off
-      //             }
-      //       }
-      // }
 }
 
 uint32_t Wheel(byte WheelPos) {
       WheelPos = 255 - WheelPos;
       if (WheelPos < 85) {
-            return leds.Color((255 - WheelPos * 3)  * singleColorIntensity / 255, 0, (WheelPos * 3) * singleColorIntensity / 255);
+            // Convert 0 - 255 values to 0 to set ledIntensity (eg 0 - 255 -> 0 - 5 at ledIntensity 5). Basically map()
+            return leds.Color((255 - WheelPos * 3) * ledIntensity / 255, 0, (WheelPos * 3) * ledIntensity / 255);
       }
       if (WheelPos < 170) {
             WheelPos -= 85;
-            return leds.Color(0, (WheelPos * 3) * singleColorIntensity / 255, (255 - WheelPos * 3) * singleColorIntensity / 255);
+            return leds.Color(0, (WheelPos * 3) * ledIntensity / 255, (255 - WheelPos * 3) * ledIntensity / 255);
       }
       WheelPos -= 170;
-      return leds.Color((WheelPos * 3) * singleColorIntensity / 255, (255 - WheelPos * 3) * singleColorIntensity / 255, 0);
+      return leds.Color((WheelPos * 3) * ledIntensity / 255, (255 - WheelPos * 3) * ledIntensity / 255, 0);
 }
 
 void sleepLed() {
@@ -363,7 +423,7 @@ void sleepLed() {
       delay(500);
       leds.setPixelColor(0, leds.Color(0, 0, 0)); 
       leds.show(); 
-      if (ledActive == false) {
+      if (ledActive == false && preventSleep == false) {
             delay(500);
             leds.setPixelColor(0, leds.Color(5, 0, 0)); 
             leds.show(); 
@@ -403,7 +463,9 @@ void LEDTrigger(LEDZone zoneToDisplay) {
                   break;
             }
       }
-      // digitalWriteFast(LED_EN, LOW);
+      if (ledActive == false && preventSleep == false) {
+            digitalWriteFast(LED_EN, LOW);
+      }
 }
 
 
