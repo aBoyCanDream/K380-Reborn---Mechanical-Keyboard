@@ -44,12 +44,15 @@ uint16_t fadeIncr = 50;
 bool zoneActive = false;
 
 // Create relative equal grid of pixels  (in order from right to left, bottom of keyboard to top -- encoder pixels run clockwise. Zero is absolute top right of keyboard). -1 is spaces for larger keys (missing lights)
+// 17 elements per row
 int8_t row6[] = { 88, 87, 86, 85, 84, 83, 82, 81, 80, 79, 78, 77, 76, 75, 74,  3,  0};
 int8_t row5[] = { 73, 72, 71, 70, 69, 68, 67, 66, 65, 64, 63, 62, 61, -1, 60,  2,  1};
 int8_t row4[] = { 59, 58, 57, 56, 55, 54, 53, 52, 51, 50, 49, 48, 47, 46, -1,  7,  4};
 int8_t row3[] = { 45, -1, 44, 43, 42, 41, 40, 39, 38, 37, 36, 35, 34, 33, -1,  6,  5};
-int8_t row2[] = { -1, 32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, -1, 21, -1, 20, 19};
+int8_t row2[] = { 32, -1, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, -1, 21, -1, 20, 19};
 int8_t row1[] = { 18, 17, 16, 15, -1, -1, -1, 14, -1, -1, -1, 13, 12, 11, 10,  9,  8};
+
+int8_t *grid[] = { row1, row2, row3, row4, row5, row6 };
 
 // Since this is for the static version of the library, we need to supply the pixel array
 // This saves space by eliminating use of malloc() and free(), and makes the RAM used for
@@ -128,7 +131,11 @@ void ledLoop() {
                   theaterChaseRainbow();
             } else if (ledMode == 4) {
                   breathe();
-            }         
+            } else if (ledMode == 5) {
+                  wave();
+            } else if (ledMode == 6) {
+                  eqExample();
+            }      
       }
 
       static uint16_t ledCommandCount = 0;
@@ -229,10 +236,18 @@ void enc1AltToggle(int8_t direction) {
                   breathe();
                   break;
             }
+            case 5: {
+                  wave();
+                  break;
+            }
+            case 6: {
+                  eqExample();
+                  break;
+            }
       }
 }
 
-const uint8_t numLedModes = 5;
+const uint8_t numLedModes = 7;
 void enc2AltToggle(int8_t direction) {
       int8_t l_ledMode;
       l_ledMode = ledMode += direction;
@@ -258,6 +273,14 @@ void enc2AltToggle(int8_t direction) {
             }
             case 4: {
                   breathe();
+                  break;
+            }
+            case 5: {
+                  wave();
+                  break;
+            }
+            case 6: {
+                  eqExample();
                   break;
             }
       }
@@ -318,7 +341,7 @@ void breathe() {
             animationMillis = millis();
 
             uint8_t startPixel = ledModeSelectActive == true ? 8 : 0;
-            uint8_t intensityValue = gaussianWave(breathAnimationCount, smoothness_pts);
+            uint8_t intensityValue = gaussianWave(breathAnimationCount, smoothness_pts) * 50 / 256;
             uint32_t colorValue = singleColorValue(intensityValue);
             for (int i = startPixel; i < NUMPIXELS; i++) {
                   leds.setPixelColor(i, colorValue);
@@ -328,16 +351,161 @@ void breathe() {
       }
 }
 
+static uint16_t waveAnimationCount = 0;
+static uint16_t waveAnimationOffset = 0;
+void wave() {
+      uint16_t waveAnimationLength = 51;
+      uint16_t waveAnimationDelay = 100;
+
+      preventSleep = true;
+      ledActive = false;      
+
+      if (millis() - animationMillis > waveAnimationDelay) {
+            animationMillis = millis();
 
 
-uint8_t gaussianWave(uint16_t frame, double numFrames) {
-      const double gamma = 0.2; // affects the width of peak (more or less darkness)
-      const double beta = 0.5; // shifts the gaussian to be symmetric
+            uint32_t colorValue = singleColorValue(ledIntensity);
 
-      double wave_pt = 255.0*(exp(-(pow(((frame/numFrames)-beta)/gamma,2.0))/2.0));
-      return static_cast<uint8_t>(wave_pt * 50 / 255);      
+            // leds.clear();
+
+            uint8_t startPixel = ledModeSelectActive == true ? 8 : 0;
+            for (int i = startPixel; i < NUMPIXELS; i++) {
+                  leds.setPixelColor(i, leds.Color(0, 5, 0));
+            }
+
+            for (int j = 0; j < 17; j++) {
+                  // uint8_t offset = j < 11 ? j : j - 11;
+                  uint8_t topPixel = gaussianWave(waveAnimationCount + j, waveAnimationLength, 0.105, 0.8) * 7 / 256; // return value between 0 - 6
+                  for (int i = topPixel; i > 0; i--) {
+                        // Only animate 1-6. 0 is all leds in column off
+                        if (grid[i - 1][j] == -1) continue;
+                        if (startPixel == 8 && grid[i - 1][j] < 8) continue;
+                        leds.setPixelColor(grid[i - 1][j], colorValue);
+                  }                
+            }  
+
+            leds.show();
+            if (++waveAnimationCount >= waveAnimationLength) waveAnimationCount = 0;
+      }
 }
 
+// Good explanation of the formula here: https://makersportal.com/blog/2020/3/27/simple-breathing-led-in-arduino
+uint8_t gaussianWave(uint16_t frame, double numFrames, double gamma, double beta) { // .09 .8
+
+      double wave_pt = 255.0*(exp(-(pow(((frame/numFrames)-beta)/gamma,2.0))/2.0));
+      return static_cast<uint8_t>(wave_pt);      
+}
+
+const uint16_t eqDelay = 100;
+// static uint16_t eqAnimationCount = 0;
+void eqExample() {
+      preventSleep = true;
+      ledActive = false;      
+
+      if (millis() - animationMillis > eqDelay) {
+            animationMillis = millis();
+            uint32_t colorValue = singleColorValue(ledIntensity);     
+            uint8_t startPixel = ledModeSelectActive == true ? 8 : 0;
+
+            leds.fill(leds.Color(0, 0, 0), startPixel);
+            uint8_t topPixel = gaussianWave(waveAnimationCount, 17) * 7 / 256; // return value between 0 - 6
+            for (int i = topPixel; i > 0; i--) {
+                  // Only animate 1-6. 0 is all leds in column off
+                  for (int k = 0; k < 2; k++) {
+                        if (grid[i - 1][k] == -1) continue;
+                        if (startPixel == 8 && grid[i - 1][k] < 8) continue;
+                        leds.setPixelColor(grid[i - 1][k], leds.Color(5, 0, 0));                                 
+                  }
+                  // if (grid[i - 1][0] == -1) continue;
+                  // if (startPixel == 8 && grid[i - 1][0] < 8) continue;
+                  // leds.setPixelColor(grid[i - 1][0], colorValue);
+            }     
+
+            uint8_t topPixel2 = gaussianWave(waveAnimationCount+4, 17) * 7 / 256; // return value between 0 - 6
+            for (int i = topPixel2; i > 0; i--) {
+                  // Only animate 1-6. 0 is all leds in column off
+                        for (int k = 2; k < 4; k++) {
+                              if (grid[i - 1][k] == -1) continue;
+                              if (startPixel == 8 && grid[i - 1][k] < 8) continue;
+                              leds.setPixelColor(grid[i - 1][k], leds.Color(5, 3, 0));                                 
+                        }
+            }  
+
+            uint8_t topPixel3 = gaussianWave(waveAnimationCount+8, 17) * 7 / 256; // return value between 0 - 6
+            for (int i = topPixel3; i > 0; i--) {
+                  // Only animate 1-6. 0 is all leds in column off
+                        for (int k = 4; k < 6; k++) {
+                              if (grid[i - 1][k] == -1) continue;
+                              if (startPixel == 8 && grid[i - 1][k] < 8) continue;
+                              leds.setPixelColor(grid[i - 1][k], leds.Color(3, 5, 0));                                 
+                        }
+            }  
+            uint8_t topPixel4 = gaussianWave(waveAnimationCount+10, 17) * 7 / 256; // return value between 0 - 6
+            for (int i = topPixel4; i > 0; i--) {
+                  // Only animate 1-6. 0 is all leds in column off
+                        for (int k = 6; k < 8; k++) {
+                              if (grid[i - 1][k] == -1) continue;
+                              if (startPixel == 8 && grid[i - 1][k] < 8) continue;
+                              leds.setPixelColor(grid[i - 1][k], leds.Color(0, 5, 0));                                 
+                        }
+            }  
+
+            uint8_t topPixel5 = gaussianWave(waveAnimationCount+9, 17) * 7 / 256; // return value between 0 - 6
+            for (int i = topPixel5; i > 0; i--) {
+                  // Only animate 1-6. 0 is all leds in column off
+                        for (int k = 8; k < 10; k++) {
+                              if (grid[i - 1][k] == -1) continue;
+                              if (startPixel == 8 && grid[i - 1][k] < 8) continue;
+                              leds.setPixelColor(grid[i - 1][k], leds.Color(0, 5, 3));                                 
+                        }
+            }  
+            uint8_t topPixel6 = gaussianWave(waveAnimationCount+2, 17) * 7 / 256; // return value between 0 - 6
+            for (int i = topPixel6; i > 0; i--) {
+                  // Only animate 1-6. 0 is all leds in column off
+                        for (int k = 10; k < 12; k++) {
+                              if (grid[i - 1][k] == -1) continue;
+                              if (startPixel == 8 && grid[i - 1][k] < 8) continue;
+                              leds.setPixelColor(grid[i - 1][k], leds.Color(0, 3, 5));                                 
+                        }
+            }  
+            uint8_t topPixel7 = gaussianWave(waveAnimationCount+3, 17) * 7 / 256; // return value between 0 - 6
+            for (int i = topPixel7; i > 0; i--) {
+                  // Only animate 1-6. 0 is all leds in column off
+                        for (int k = 12; k < 14; k++) {
+                              if (grid[i - 1][k] == -1) continue;
+                              if (startPixel == 8 && grid[i - 1][k] < 8) continue;
+                              leds.setPixelColor(grid[i - 1][k], leds.Color(2, 3, 5));                                 
+                        }
+            }  
+            uint8_t topPixel8 = gaussianWave(waveAnimationCount+1, 17) * 7 / 256; // return value between 0 - 6
+            for (int i = topPixel8; i > 0; i--) {
+                  // Only animate 1-6. 0 is all leds in column off
+                        for (int k = 14; k < 16; k++) {
+                              if (grid[i - 1][k] == -1) continue;
+                              if (startPixel == 8 && grid[i - 1][k] < 8) continue;
+                              leds.setPixelColor(grid[i - 1][k], leds.Color(0, 0, 5));                                 
+                        }
+            }  
+
+            // // leds.fill(leds.Color(0, 0, 0), startPixel);
+            // leds.clear();
+            // // leds.setPixelColor(9, colorValue);  
+            
+            // for (int j = 0; j < 8; j++) {
+            //       uint8_t randomValue = random(0, 8);
+            //       for (int i = randomValue; i > 0; i--) {
+            //             for (int k = 0; k < 2; k++) {
+            //                   if (grid[i - 1][(j * 2) + k] == -1) continue;
+            //                   if (startPixel == 8 && grid[i - 1][(j * 2) + k] < 8) continue;
+            //                   leds.setPixelColor(grid[i - 1][(j * 2) + k], colorValue);                                 
+            //             }
+            //       }
+            // }
+            leds.show();
+
+            if (++waveAnimationCount >= 17) waveAnimationCount = 0;
+      }
+}
 
 static uint8_t rainbowIterationCount = 0;
 static uint16_t rainbowDelay = 100;
