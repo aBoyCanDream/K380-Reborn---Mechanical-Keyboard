@@ -5,9 +5,8 @@
 // Needed for sleep functions:
 #include <avr/sleep.h>
 
-// Use const pin assignments to maximize efficiency per https://github.com/SpenceKonde/megaTinyCore/blob/master/megaavr/extras/Ref_Digital.md. Also, some of the newer calls need these as known consts at compile time
+// Use const pin assignments to maximize efficiency per https://github.com/SpenceKonde/megaTinyCore/blob/master/megaavr/extras/Ref_Digital.md. Also, some of the newer calls need these as known consts (eg digitalWriteFast, digitalReadFast etc) at compile time
 
-// OptoSw don't match PCB... as of yet!
 const uint8_t OPTOSW1 = PIN_PA7;
 const uint8_t OPTOSW2 = PIN_PC4;
 const uint8_t OPTOSW3 = PIN_PC5;
@@ -89,18 +88,39 @@ void goToSleep() {
       sleepLed();
 
       // Turn off ADC before sleeping. It will be burning over 100uA in sleep mode otherwise.
-      ADCPowerOptions(ADC_DISABLE);  // Turn off ADC
+      ADC0.CTRLA &= ~ADC_ENABLE_bm;
+      // upon waking if ou plan to use the ADC
+      // ADC0.CTRLA |= ADC_ENABLE_bm;
+
+      // Note!! We can't use the options below because they require megatinycore ver 2.5.12 and the platformIO ver is behind at 1.9
+      // ADCPowerOptions(ADC_DISABLE);  // Turn off ADC
       //Then:
       //ADCPowerOptions(ADC_ENABLE);     // to turn on ADC after wake if needed
+
 
       // //Dev
       // digitalWriteFast(OPTOSW1, LOW); 
       // digitalWriteFast(OPTOSW2, LOW); 
 
+/*       Enabling the interrupt
+
+The pin interrupt control is handled by the PORTx.PINnCTRL register. Bits 0-2, the ISC ("Input Sense Configuration") control interrupt and input sense behavior:
+
+    000 PORT_ISC_INTDISABLE_gc = no interrupt, normal operation, the default.
+    001 PORT_ISC_BOTHEDGES_gc = interrupt on change
+    010 PORT_ISC_RISING_gc = interrupt on rising
+    011 PORT_ISC_FALLING_gc = interrupt on falling
+    100 PORT_ISC_INPUT_DISABLE_gc = digital input buffer disabled entirely, which happens to also disable the interrupt (equivalent of DIDR register on classic AVRs that have it)
+    101 PORT_ISC_LEVEL_gc = interrupt on LOW level - fires continuously as long as low level is held. This is quite common in the world at large; in many consumer electronics, holding a button has no effect until you release it - this is the simplest implementation that leads to this behavior (though some debounce algorithms do too)
+
+Bit 3 controls the pullup.
+
+Bit 3 is set when pinMode() is used to set the pin to INPUT_PULLUP. When manually writing the PINnCTRL registers, be sure to either use bitwise operators to preserve this bit, or set it to the correct value (the former is easier to remember, but the latter is faster) */
+
       // Turn all our interrupts back on
-      PORTB.PIN6CTRL  = 0b00001011; //ENC2A - PULLUPEN = 1, ISC = 2 interrupt on falling
+      PORTB.PIN6CTRL  = 0b00000011; //ENC2A 
       PORTA.PIN6CTRL  = 0b00000011; // ENC1A
-      PORTB.PIN2CTRL  = 0b00001011; // ENC1BTN
+      PORTB.PIN2CTRL  = 0b00001011; // ENC1BTN - PULLUPEN = 1, ISC = 2 interrupt on falling
       PORTC.PIN2CTRL  = 0b00001011; // ENC2BTN
 
       // Then sleep!
@@ -110,7 +130,6 @@ void goToSleep() {
 
 void setup() {
       Serial.swap(1);   // Sets Serial TxD, RxD to PA1 and PA2
-      //pinMode(PIN_PA1, OUTPUT);     // Don't think I need this. Try take it out
 
 //   Serial.begin(115200);
 
@@ -157,7 +176,7 @@ void setup() {
 
 
       // We're not using ADC so turn off to save power
-      ADCPowerOptions(ADC_DISABLE);
+      ADC0.CTRLA &= ~ADC_ENABLE_bm;
 
       // Sleep
       // To use sleep, we have to first select our mode and then enable with two calls below:
@@ -184,20 +203,25 @@ void loop() {
             goToSleep();
       }
 
-        //BlinkWithoutDelay, just so you can confirm that the sketch continues to run.
-      //       unsigned long currentMillis = millis();        
-      // //   if (ledFlash) {
+      // Keep these interrupt wake up instructions directly after where we will sleep. Upon waking, we will continue the code at that point where it slept.
+      // You can add specific instructions
 
-      //       if (currentMillis - previousMillis >= 6000) {
-      //       previousMillis = currentMillis;
-      //       if (ledState == LOW) {
-      //             ledState = HIGH;
-      //       } else {
-      //             ledState = LOW;
-      //       }
-      //       digitalWrite(LED_EN, ledState);
-      //       }            
-        
+      if (interrupt1) {
+            sleepCounterStarted = false;
+            interrupt1 = 0;
+            //     Serial.println("I1 fired");
+      }
+
+      if (interrupt2){
+      interrupt2 = 0;
+
+      }
+
+      if (interrupt3){
+            interrupt3 = 0;
+            // Serial.println("I3 fired");
+      }
+
       ledLoop();
 
       bool enc1BtnState = digitalReadFast(ENC1BTN);
@@ -266,32 +290,6 @@ void loop() {
             enc2BtnDebounceMillis = millis();
       }
 
-
-      if (interrupt1){
-            interrupt1 = 0;
-            //     Serial.println("I1 fired");
-                        // Dev: Blink before sleep
-            // leds.setPixelColor(0, leds.Color(0, 5, 0)); // Moderately bright green color.
-            // leds.show(); // This sends the updated pixel color to the hardware.
-
-            // awakeLED = true;
-            // awakeLEDMillis = millis();
-      }
-
-
-
-
-      if (interrupt2){
-      interrupt2 = 0;
-
-      }
-
-      if (interrupt3){
-            interrupt3 = 0;
-//     ledFlash = !ledFlash;
-      // Serial.println("I3 fired");
-      digitalWriteFast(OPTOSW2, HIGH); 
-      }
 
       // Read Encoder 1
       bool enc1AState = digitalReadFast(ENC1A);
@@ -450,8 +448,6 @@ ISR(PORTA_PORT_vect) {
       PORTB.PIN2CTRL = 0x08; // ENC1BTN // If this pin has the pullup turned on, and we just want to turn off the interrupt.
       PORTC.PIN2CTRL = 0x08; // ENC2BTN
 
-      sleepCounterStarted = false;
-
       interrupt1 = 1;
       byte flags = PORTA.INTFLAGS;
       // This line in the tutorial doesn't work to clear all flags:
@@ -467,8 +463,6 @@ ISR(PORTB_PORT_vect) {
       PORTA.PIN6CTRL = 0x00; // ENC1A
       PORTB.PIN2CTRL = 0x08; // ENC1BTN // If this pin has the pullup turned on, and we just want to turn off the interrupt.
       PORTC.PIN2CTRL = 0x08; // ENC2BTN
-
-      sleepCounterStarted = false;
 
       byte flags = PORTB.INTFLAGS;
       interrupt1 = 1;
@@ -496,7 +490,6 @@ ISR(PORTC_PORT_vect) {
       PORTB.PIN2CTRL = 0x08; // ENC1BTN // If this pin has the pullup turned on, and we just want to turn off the interrupt.
       PORTC.PIN2CTRL = 0x08; // ENC2BTN
 
-      sleepCounterStarted = false;
       interrupt1 = 1;
 
       byte flags = PORTC.INTFLAGS;
